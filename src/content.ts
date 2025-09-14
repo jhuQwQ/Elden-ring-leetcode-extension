@@ -26,8 +26,8 @@ const animations = {
 } as const
 
 const delays = {
-    submissionAccepted: 3000,
-    submissionRejected: 1000
+    submissionAccepted: 0,
+    submissionRejected: 0
 } as const satisfies Partial<{ [delay in Actions]: number }>
 
 let isShowingBanner = false;
@@ -42,6 +42,48 @@ if (document.readyState === 'loading') {
 
 function initializeExtension() {
     console.log('Extension initialized, DOM ready');
+
+    // Watch for submission result changes in DOM
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            mutation.addedNodes.forEach((node) => {
+                if (node.nodeType === 1) { // Element node
+                    const element = node as Element;
+
+                    // Check for "Accepted" result
+                    if (element.textContent?.includes('Accepted') &&
+                        (element.className?.includes('text-green') ||
+                         element.className?.includes('success') ||
+                         element.querySelector?.('.text-green-s, [class*="success"], [class*="accepted"]'))) {
+                        console.log('DOM detected: Submission accepted');
+                        if (!isShowingBanner) {
+                            show('submissionAccepted', 0);
+                        }
+                    }
+
+                    // Check for rejection results
+                    else if ((element.textContent?.includes('Wrong Answer') ||
+                             element.textContent?.includes('Time Limit Exceeded') ||
+                             element.textContent?.includes('Runtime Error') ||
+                             element.textContent?.includes('Memory Limit Exceeded')) &&
+                            (element.className?.includes('text-red') ||
+                             element.className?.includes('error') ||
+                             element.querySelector?.('.text-red-s, [class*="error"], [class*="rejected"]'))) {
+                        console.log('DOM detected: Submission rejected');
+                        if (!isShowingBanner) {
+                            show('submissionRejected', 0);
+                        }
+                    }
+                }
+            });
+        });
+    });
+
+    // Start observing
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
 }
 
 browser.runtime.onMessage.addListener((
@@ -70,7 +112,7 @@ browser.runtime.onMessage.addListener((
 
 function show(
     action: Actions,
-    delay = delays[action as keyof typeof delays] ?? 1000
+    delay: number = delays[action as keyof typeof delays] ?? 0
 ) {
     console.log(`show() called with action: ${action}, delay: ${delay}`);
 

@@ -154,7 +154,7 @@ async function fetchSubmissionResult(submissionId: string, tabId: number): Promi
                     pending.retryCount = retryCount;
                     pendingSubmissions.set(tabId, pending);
                     
-                    const delay = Math.min(retryCount * 500, 2000); 
+                    const delay = Math.min(retryCount * 200, 1000); 
                     setTimeout(() => fetchSubmissionResult(submissionId, tabId), delay);
                 } else {
                     console.log('Max retries reached for submission check.');
@@ -238,7 +238,7 @@ browser.webRequest.onCompleted.addListener(
 
                 setTimeout(() => {
                     fetchSubmissionResult(submissionId, detail.tabId);
-                }, 500);
+                }, 100);
             }
         }
     },
