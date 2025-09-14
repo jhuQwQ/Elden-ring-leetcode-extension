@@ -30,6 +30,8 @@ const delays = {
     submissionRejected: 1000
 } as const satisfies Partial<{ [delay in Actions]: number }>
 
+let isShowingBanner = false;
+
 console.log('LeetCode Banner Extension - Content script loaded on:', window.location.href);
 
 if (document.readyState === 'loading') {
@@ -71,11 +73,18 @@ function show(
     delay = delays[action as keyof typeof delays] ?? 1000
 ) {
     console.log(`show() called with action: ${action}, delay: ${delay}`);
-    
+
     if (action in banners === false) {
         console.error(`Invalid action: ${action}`);
         return;
     }
+
+    if (isShowingBanner) {
+        console.log('Banner already showing, ignoring duplicate request');
+        return;
+    }
+
+    isShowingBanner = true;
 
     console.log('Creating banner element...');
     const banner = document.createElement('img');
@@ -160,6 +169,7 @@ function show(
         setTimeout(() => {
             console.log('Removing banner from DOM');
             banner.remove();
+            isShowingBanner = false;
         }, animations.duration);
     }, animations.span + delay);
 }

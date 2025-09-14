@@ -154,7 +154,7 @@ async function fetchSubmissionResult(submissionId: string, tabId: number): Promi
                     pending.retryCount = retryCount;
                     pendingSubmissions.set(tabId, pending);
                     
-                    const delay = Math.min(retryCount * 1000, 5000); 
+                    const delay = Math.min(retryCount * 500, 2000); 
                     setTimeout(() => fetchSubmissionResult(submissionId, tabId), delay);
                 } else {
                     console.log('Max retries reached for submission check.');
@@ -165,9 +165,14 @@ async function fetchSubmissionResult(submissionId: string, tabId: number): Promi
         }
 
         if (action) {
-            console.log(`Determined final action: ${action} for state: ${status}`);
-            dispatch(action, { url: '', method: 'POST', tabId });
-            pendingSubmissions.delete(tabId);
+            const pending = pendingSubmissions.get(tabId);
+            if (pending && !pending.hasDispatched) {
+                console.log(`Determined final action: ${action} for state: ${status}`);
+                pending.hasDispatched = true;
+                pendingSubmissions.set(tabId, pending);
+                dispatch(action, { url: '', method: 'POST', tabId });
+                setTimeout(() => pendingSubmissions.delete(tabId), 5000);
+            }
         }
         
     } catch (error) {
@@ -233,7 +238,7 @@ browser.webRequest.onCompleted.addListener(
 
                 setTimeout(() => {
                     fetchSubmissionResult(submissionId, detail.tabId);
-                }, 1000);
+                }, 500);
             }
         }
     },
