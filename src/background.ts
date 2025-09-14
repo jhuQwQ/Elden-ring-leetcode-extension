@@ -1,6 +1,6 @@
 import type { Actions } from './content';
 
-declare const chrome: {
+declare const browser: {
     webRequest: {
         onBeforeRequest: {
             addListener: (
@@ -25,24 +25,25 @@ declare const chrome: {
         };
     };
     tabs: {
-        get: (tabId: number, callback: (tab: chrome.tabs.Tab) => void) => void;
-        sendMessage: (tabId: number, message: { action: Actions }, callback?: (response?: any) => void) => void;
-        query: (queryInfo: chrome.tabs.QueryInfo, callback: (result: chrome.tabs.Tab[]) => void) => void;
+        get: (tabId: number) => Promise<browser.tabs.Tab>;
+        sendMessage: (tabId: number, message: { action: Actions }) => Promise<any>;
+        query: (queryInfo: browser.tabs.QueryInfo) => Promise<browser.tabs.Tab[]>;
+        executeScript: (tabId: number, details: { file?: string, code?: string }) => Promise<any[]>;
     };
     runtime: {
         lastError?: { message?: string };
         onMessage: {
             addListener: (callback: (
                 message: any,
-                sender: chrome.runtime.MessageSender,
+                sender: browser.runtime.MessageSender,
                 sendResponse: (response?: any) => void
             ) => void) => void;
         };
-    };
-    scripting: {
-        executeScript: (details: { target: { tabId: number }, files?: string[], func?: () => any }, callback?: (result: any[]) => void) => void;
+        getURL: (path: string) => string;
     };
 };
+
+declare const chrome: typeof browser;
 
 interface WebRequestDetails {
     url: string;
@@ -66,48 +67,34 @@ async function dispatch(action: Actions, details: WebRequestDetails): Promise<vo
     if (typeof tabId !== 'number' || !tabId) return;
 
     console.log(`Dispatching action: ${action} to tab: ${tabId}`);
-    
+
     try {
-        const tab = await new Promise<chrome.tabs.Tab | undefined>((resolve) => {
-            chrome.tabs.get(tabId, (tab) => {
-                if (chrome.runtime.lastError) {
-                    console.error('Error getting tab:', chrome.runtime.lastError);
-                    resolve(undefined);
-                } else {
-                    resolve(tab);
-                }
-            });
-        });
+        const tab = await browser.tabs.get(tabId);
 
         if (!tab || !tab.active) {
             console.log(`Tab ${tabId} is not active or no longer exists`);
             return;
         }
 
-        const sendMessage = (retryCount = 0) => {
+        const sendMessage = async (retryCount = 0) => {
             try {
-                chrome.tabs.sendMessage(tabId, { action }, (response) => {
-                    if (chrome.runtime.lastError) {
-                        console.error('Error sending message:', chrome.runtime.lastError);
-                        
-                        if (retryCount < 2) { 
-                            const delay = Math.pow(2, retryCount) * 1000;
-                            console.log(`Retrying in ${delay}ms... (attempt ${retryCount + 1}/2)`);
-                            setTimeout(() => sendMessage(retryCount + 1), delay);
-                        } else {
-                            console.error('Max retries reached for tab', tabId);
-                            injectContentScript(tabId, action);
-                        }
-                    } else if (response) {
-                        console.log('Received response:', response);
-                    }
-                });
+                const response = await browser.tabs.sendMessage(tabId, { action });
+                console.log('Received response:', response);
             } catch (error) {
-                console.error('Error in dispatch:', error);
+                console.error('Error sending message:', error);
+
+                if (retryCount < 2) {
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    console.log(`Retrying in ${delay}ms... (attempt ${retryCount + 1}/2)`);
+                    setTimeout(() => sendMessage(retryCount + 1), delay);
+                } else {
+                    console.error('Max retries reached for tab', tabId);
+                    injectContentScript(tabId, action);
+                }
             }
         };
-        
-        sendMessage(0);
+
+        await sendMessage(0);
     } catch (error) {
         console.error('Error in dispatch:', error);
     }
@@ -115,54 +102,30 @@ async function dispatch(action: Actions, details: WebRequestDetails): Promise<vo
 
 async function injectContentScript(tabId: number, action: Actions) {
     try {
-        await new Promise<void>((resolve, reject) => {
-            chrome.scripting.executeScript({
-                target: { tabId },
-                files: ['content.js']
-            }, () => {
-                if (chrome.runtime.lastError) {
-                    reject(chrome.runtime.lastError);
-                } else {
-                    resolve();
-                }
-            });
-        });
-        
+        await browser.tabs.executeScript(tabId, { file: 'content.js' });
+
         await new Promise(resolve => setTimeout(resolve, 500));
-        
-        chrome.tabs.sendMessage(tabId, { action }, () => {
-            if (chrome.runtime.lastError) {
-                console.error('Still failed to send message after injection:', chrome.runtime.lastError);
-            } else {
-                console.log('Message sent successfully after script injection');
-            }
-        });
+
+        try {
+            await browser.tabs.sendMessage(tabId, { action });
+            console.log('Message sent successfully after script injection');
+        } catch (error) {
+            console.error('Still failed to send message after injection:', error);
+        }
     } catch (error) {
         console.error('Error injecting content script:', error);
-        
+
         try {
-            await new Promise<void>((resolve, reject) => {
-                chrome.scripting.executeScript({
-                    target: { tabId },
-                    func: () => {
-                        console.log('Content script injected via fallback');
-                    }
-                }, () => {
-                    if (chrome.runtime.lastError) {
-                        reject(chrome.runtime.lastError);
-                    } else {
-                        resolve();
-                    }
-                });
+            await browser.tabs.executeScript(tabId, {
+                code: 'console.log("Content script injected via fallback");'
             });
-            
-            chrome.tabs.sendMessage(tabId, { action }, () => {
-                if (chrome.runtime.lastError) {
-                    console.error('Still failed after fallback injection:', chrome.runtime.lastError);
-                } else {
-                    console.log('Message sent successfully after fallback injection');
-                }
-            });
+
+            try {
+                await browser.tabs.sendMessage(tabId, { action });
+                console.log('Message sent successfully after fallback injection');
+            } catch (msgError) {
+                console.error('Still failed after fallback injection:', msgError);
+            }
         } catch (fallbackError) {
             console.error('Fallback injection also failed:', fallbackError);
         }
@@ -281,22 +244,22 @@ function extractSubmissionId(url: string): string | null {
     return match ? match[1] : null;
 }
 
-chrome.webRequest.onBeforeRequest.addListener(
+browser.webRequest.onBeforeRequest.addListener(
     (detail: WebRequestDetails) => {
         console.log('Request intercepted:', detail.url, detail.method);
-        
+
         if (detail.url === 'https://leetcode.com/graphql') {
             const body = readBody(detail);
             console.log('GraphQL request body:', body);
-            
+
             if (matchLeetCodeGraphQL(detail, 'submitCode')) {
                 console.log('Submission detected!');
                 pendingSubmissions.set(detail.tabId, { timestamp: Date.now(), retryCount: 0 });
                 return;
             }
         }
-        
-        if (detail.url.includes('leetcode.com') && detail.url.includes('submit') && 
+
+        if (detail.url.includes('leetcode.com') && detail.url.includes('submit') &&
             detail.method === 'POST' && !detail.url.includes('/check/')) {
             console.log('Direct submission URL detected:', detail.url);
             pendingSubmissions.set(detail.tabId, { timestamp: Date.now(), retryCount: 0, hasDispatched: false });
@@ -307,21 +270,21 @@ chrome.webRequest.onBeforeRequest.addListener(
     ['requestBody']
 );
 
-chrome.webRequest.onCompleted.addListener(
+browser.webRequest.onCompleted.addListener(
     (detail: WebRequestDetails) => {
         console.log('Request completed:', detail.url);
-        
+
         if (detail.url.includes('leetcode.com/submissions/detail/') && detail.url.includes('/check/')) {
             const submissionId = extractSubmissionId(detail.url);
             if (submissionId && pendingSubmissions.has(detail.tabId)) {
                 console.log(`Submission status check completed for ID: ${submissionId}`);
-                
+
                 const pending = pendingSubmissions.get(detail.tabId);
                 if (pending) {
                     pending.submissionId = submissionId;
                     pendingSubmissions.set(detail.tabId, pending);
                 }
-                
+
                 setTimeout(() => {
                     fetchSubmissionResult(submissionId, detail.tabId);
                 }, 1000);
@@ -332,27 +295,28 @@ chrome.webRequest.onCompleted.addListener(
     ['responseHeaders']
 );
 
-chrome.webRequest.onBeforeResponse?.addListener(
+browser.webRequest.onBeforeResponse?.addListener(
     (detail: WebRequestDetails) => {
         if (detail.url.includes('leetcode.com/submissions/detail/') && detail.url.includes('/check/')) {
             const submissionId = extractSubmissionId(detail.url);
             if (submissionId && pendingSubmissions.has(detail.tabId)) {
                 console.log(`Got response for submission check: ${submissionId}`);
-                
-                setTimeout(() => {
-                    chrome.scripting.executeScript({
-                        target: { tabId: detail.tabId },
-                        func: () => {
-                            return {
+
+                setTimeout(async () => {
+                    try {
+                        const results = await browser.tabs.executeScript(detail.tabId, {
+                            code: `({
                                 url: window.location.href,
                                 body: document.body.textContent
-                            };
-                        }
-                    }, (results) => {
+                            })`
+                        });
+
                         if (results && results[0]) {
                             console.log('Page content:', results[0]);
                         }
-                    });
+                    } catch (error) {
+                        console.error('Error executing script:', error);
+                    }
                 }, 500);
             }
         }

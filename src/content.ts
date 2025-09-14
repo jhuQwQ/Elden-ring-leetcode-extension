@@ -1,4 +1,5 @@
-declare const chrome: any;
+declare const browser: any;
+declare const chrome: typeof browser;
 
 const banners = {
     submissionAccepted: 'banners/submission-accepted.webp',
@@ -42,13 +43,13 @@ function initializeExtension() {
     console.log('Extension initialized, DOM ready');
 }
 
-chrome.runtime.onMessage.addListener((
-    message: { action?: Actions } | undefined, 
-    _sender: unknown, 
+browser.runtime.onMessage.addListener((
+    message: { action?: Actions } | undefined,
+    _sender: unknown,
     sendResponse: (response?: any) => void
 ) => {
     console.log('Message received in content script:', message);
-    
+
     if (!message?.action) {
         console.log('No action in message');
         sendResponse({ received: false, error: 'No action provided' });
@@ -64,7 +65,7 @@ chrome.runtime.onMessage.addListener((
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         sendResponse({ received: false, error: errorMessage });
     }
-    
+
     return true;
 });
 
@@ -81,7 +82,7 @@ function show(
 
     console.log('Creating banner element...');
     const banner = document.createElement('img');
-    const bannerSrc = chrome.runtime.getURL(banners[action]);
+    const bannerSrc = browser.runtime.getURL(banners[action]);
     console.log('Banner source URL:', bannerSrc);
     
     banner.src = bannerSrc;
@@ -123,7 +124,7 @@ function show(
         console.log('Banner image loaded successfully');
     };
 
-    const soundSrc = chrome.runtime.getURL(sounds[bannerSounds[action]]);
+    const soundSrc = browser.runtime.getURL(sounds[bannerSounds[action]]);
     console.log('Sound source URL:', soundSrc);
     
     const audio = new Audio(soundSrc);
