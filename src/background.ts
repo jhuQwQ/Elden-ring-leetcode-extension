@@ -1,60 +1,6 @@
 import type { Actions } from './content';
 
-declare const browser: {
-    webRequest: {
-        onBeforeRequest: {
-            addListener: (
-                callback: (details: WebRequestDetails) => void,
-                filter: { urls: string[] },
-                extraInfoSpec: string[]
-            ) => void;
-        };
-        onCompleted: {
-            addListener: (
-                callback: (details: WebRequestDetails & { responseHeaders?: Array<{name: string, value?: string}> }) => void,
-                filter: { urls: string[] },
-                extraInfoSpec: string[]
-            ) => void;
-        };
-        onBeforeResponse: {
-            addListener: (
-                callback: (details: WebRequestDetails & { responseHeaders?: Array<{name: string, value?: string}> }) => void,
-                filter: { urls: string[] },
-                extraInfoSpec: string[]
-            ) => void;
-        };
-    };
-    tabs: {
-        get: (tabId: number) => Promise<browser.tabs.Tab>;
-        sendMessage: (tabId: number, message: { action: Actions }) => Promise<any>;
-        query: (queryInfo: browser.tabs.QueryInfo) => Promise<browser.tabs.Tab[]>;
-        executeScript: (tabId: number, details: { file?: string, code?: string }) => Promise<any[]>;
-    };
-    runtime: {
-        lastError?: { message?: string };
-        onMessage: {
-            addListener: (callback: (
-                message: any,
-                sender: browser.runtime.MessageSender,
-                sendResponse: (response?: any) => void
-            ) => void) => void;
-        };
-        getURL: (path: string) => string;
-    };
-};
-
-declare const chrome: typeof browser;
-
-interface WebRequestDetails {
-    url: string;
-    method: string;
-    tabId: number;
-    requestBody?: {
-        raw?: Array<{ bytes?: Uint8Array }>;
-        formData?: { [key: string]: string[] };
-    };
-    responseHeaders?: Array<{name: string, value?: string}>;
-}
+declare const browser: any;
 
 const pendingSubmissions = new Map<number, { 
     timestamp: number, 
@@ -62,7 +8,7 @@ const pendingSubmissions = new Map<number, {
     retryCount?: number,
     hasDispatched?: boolean 
 }>();
-async function dispatch(action: Actions, details: WebRequestDetails): Promise<void> {
+async function dispatch(action: Actions, details: any): Promise<void> {
     const tabId = details.tabId;
     if (typeof tabId !== 'number' || !tabId) return;
 
@@ -132,7 +78,7 @@ async function injectContentScript(tabId: number, action: Actions) {
     }
 }
 
-function readBody(detail: WebRequestDetails): any {
+function readBody(detail: any): any {
     if (detail.method !== 'POST') return null;
 
     if (detail.requestBody?.formData) {
@@ -152,7 +98,7 @@ function readBody(detail: WebRequestDetails): any {
     }
 }
 
-const matchLeetCodeGraphQL = (detail: WebRequestDetails, operationName: string): boolean => {
+const matchLeetCodeGraphQL = (detail: any, operationName: string): boolean => {
     if (detail.url !== 'https://leetcode.com/graphql') return false;
     if (detail.method !== 'POST') return false;
 
@@ -245,7 +191,7 @@ function extractSubmissionId(url: string): string | null {
 }
 
 browser.webRequest.onBeforeRequest.addListener(
-    (detail: WebRequestDetails) => {
+    (detail: any) => {
         console.log('Request intercepted:', detail.url, detail.method);
 
         if (detail.url === 'https://leetcode.com/graphql') {
@@ -271,7 +217,7 @@ browser.webRequest.onBeforeRequest.addListener(
 );
 
 browser.webRequest.onCompleted.addListener(
-    (detail: WebRequestDetails) => {
+    (detail: any) => {
         console.log('Request completed:', detail.url);
 
         if (detail.url.includes('leetcode.com/submissions/detail/') && detail.url.includes('/check/')) {
@@ -295,35 +241,6 @@ browser.webRequest.onCompleted.addListener(
     ['responseHeaders']
 );
 
-browser.webRequest.onBeforeResponse?.addListener(
-    (detail: WebRequestDetails) => {
-        if (detail.url.includes('leetcode.com/submissions/detail/') && detail.url.includes('/check/')) {
-            const submissionId = extractSubmissionId(detail.url);
-            if (submissionId && pendingSubmissions.has(detail.tabId)) {
-                console.log(`Got response for submission check: ${submissionId}`);
-
-                setTimeout(async () => {
-                    try {
-                        const results = await browser.tabs.executeScript(detail.tabId, {
-                            code: `({
-                                url: window.location.href,
-                                body: document.body.textContent
-                            })`
-                        });
-
-                        if (results && results[0]) {
-                            console.log('Page content:', results[0]);
-                        }
-                    } catch (error) {
-                        console.error('Error executing script:', error);
-                    }
-                }, 500);
-            }
-        }
-    },
-    { urls: ['https://leetcode.com/*'] },
-    ['responseHeaders']
-);
 
 setInterval(() => {
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;

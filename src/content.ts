@@ -1,5 +1,4 @@
 declare const browser: any;
-declare const chrome: typeof browser;
 
 const banners = {
     submissionAccepted: 'banners/submission-accepted.webp',
@@ -44,8 +43,8 @@ function initializeExtension() {
 }
 
 browser.runtime.onMessage.addListener((
-    message: { action?: Actions } | undefined,
-    _sender: unknown,
+    message: any,
+    _sender: any,
     sendResponse: (response?: any) => void
 ) => {
     console.log('Message received in content script:', message);
@@ -53,7 +52,7 @@ browser.runtime.onMessage.addListener((
     if (!message?.action) {
         console.log('No action in message');
         sendResponse({ received: false, error: 'No action provided' });
-        return false;
+        return;
     }
 
     console.log(`Showing banner for action: ${message.action}`);
@@ -65,8 +64,6 @@ browser.runtime.onMessage.addListener((
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         sendResponse({ received: false, error: errorMessage });
     }
-
-    return true;
 });
 
 function show(
